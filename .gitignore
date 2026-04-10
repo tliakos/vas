@@ -1,0 +1,15 @@
+# Game-specific content (users add their own modules, PDFs, saves)
+games/
+
+# VASSAL engine SDK (users clone separately)
+vassal/
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Analysis output (regenerable)
+*.json
