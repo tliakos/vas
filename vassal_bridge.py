@@ -5,8 +5,8 @@ Connects to a VASSAL game server as a player, receives/sends game commands,
 and acts as the interface between the VASSAL server and the AI agent.
 
 Usage:
-  python3 vassal_bridge.py --module "SPQR" --player "Claude_AI" --room "AI Game"
-  python3 vassal_bridge.py --module "SPQR" --player "Claude_AI" --host localhost --port 5050
+  python3 vassal_bridge.py --module "MyGame" --player "Claude_AI" --room "AI Game"
+  python3 vassal_bridge.py --module "MyGame" --player "Claude_AI" --host localhost --port 5050
 """
 
 import socket
@@ -353,7 +353,7 @@ def main():
     parser.add_argument("--port", type=int, default=5050,
                         help="VASSAL server port (default: 5050)")
     parser.add_argument("--module", required=True,
-                        help="Module name (e.g., 'SPQR')")
+                        help="Module name (must match the VASSAL module)")
     parser.add_argument("--player", default="Claude_AI",
                         help="Player name (default: Claude_AI)")
     parser.add_argument("--room", default="Main Room",

@@ -88,11 +88,9 @@ Insights flow upward. The AI gets smarter with every session played.
 - VASSAL 3.7+ (for the human player side)
 - No additional Python packages required (uses only stdlib)
 
-## Currently Onboarded Games
+## Onboarded Games
 
-| Game | System | Status |
-|------|--------|--------|
-| SPQR | Great Battles of History (GBoH) | Onboarded, ready to play |
+Games are user-supplied (gitignored). See `INTEL.md` Game Log for the current registry.
 
 ## License
 

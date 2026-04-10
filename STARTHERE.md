@@ -112,19 +112,19 @@ The simplest mode. Human and AI trade save files.
 
 ```bash
 # Analyze a save file (see what's in it)
-python3 vassal_pbem.py info games/SPQR/current.vsav
+python3 vassal_pbem.py info games/<GameName>/current.vsav
 
 # Process a single AI turn
-python3 vassal_pbem.py turn --input current.vsav --output ai_response.vsav --side "Carthaginian"
+python3 vassal_pbem.py turn --input current.vsav --output ai_response.vsav --side "OpponentSide"
 
 # Watch a folder and auto-process new saves as they appear
-python3 vassal_pbem.py watch --dir games/SPQR/ --side "Carthaginian"
+python3 vassal_pbem.py watch --dir games/<GameName>/ --side "OpponentSide"
 ```
 
 **PBEM workflow (email/share):**
 1. Human plays turn in VASSAL, saves `turn3_human.vsav`
 2. Sends the file (email, shared drive, Discord, etc.)
-3. Run: `python3 vassal_pbem.py turn --input turn3_human.vsav --output turn3_ai.vsav --side "Carthaginian"`
+3. Run: `python3 vassal_pbem.py turn --input turn3_human.vsav --output turn3_ai.vsav --side "OpponentSide"`
 4. The tool extracts game state and writes an analysis JSON for Claude to process
 5. Claude generates moves, writes the response .vsav
 6. Send `turn3_ai.vsav` back to the human
@@ -143,13 +143,13 @@ VASSAL supports live online play via its server. `vassal_bridge.py` connects to 
 **Start the bridge:**
 ```bash
 # Connect to the official VASSAL server
-python3 vassal_bridge.py --module "SPQR" --player "Claude_AI" --room "AI Game"
+python3 vassal_bridge.py --module "<GameName>" --player "Claude_AI" --room "AI Game"
 
 # Connect to a local/private server
-python3 vassal_bridge.py --module "SPQR" --player "Claude_AI" --host localhost --port 5050
+python3 vassal_bridge.py --module "<GameName>" --player "Claude_AI" --host localhost --port 5050
 
 # Listen-only mode (observe and log commands)
-python3 vassal_bridge.py --module "SPQR" --player "Observer" --listen-only --log game.log
+python3 vassal_bridge.py --module "<GameName>" --player "Observer" --listen-only --log game.log
 ```
 
 **How it works:**
@@ -176,7 +176,7 @@ from vassal_bridge import VassalBridge
 
 bridge = VassalBridge(
     host="game.vassalengine.org", port=5050,
-    module_name="SPQR", player_name="Claude_AI", room_name="AI Game",
+    module_name="<GameName>", player_name="Claude_AI", room_name="AI Game",
     on_game_command=lambda cmd: process_opponent_move(cmd),
 )
 bridge.connect()

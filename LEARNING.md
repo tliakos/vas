@@ -278,7 +278,7 @@ Many units have two sides: **full strength** and **reduced**. Taking a "step los
 
 In VASSAL, step losses are typically modeled with **Embellishment** layers (flipping the counter to show the reduced side).
 
-**Alternative: Cohesion Hit systems** (used in GBoH/SPQR): Damage is tracked as cumulative Cohesion Hits against a Troop Quality (TQ) rating, using markers or Dynamic Properties. A unit routs when hits equal or exceed TQ. This is more granular than binary step loss and creates a richer attrition model.
+**Alternative: Cohesion Hit systems** (used in GBoH and similar tactical games): Damage is tracked as cumulative Cohesion Hits against a Troop Quality (TQ) rating, using markers or Dynamic Properties. A unit routs when hits equal or exceed TQ. This is more granular than binary step loss and creates a richer attrition model.
 
 ---
 

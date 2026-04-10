@@ -9,13 +9,13 @@ Manages turn-based play via save files. Three modes:
 
 Usage:
   # Process a single turn (one-shot)
-  python3 vassal_pbem.py turn --input game.vsav --output ai_response.vsav --side "Carthaginian"
+  python3 vassal_pbem.py turn --input game.vsav --output ai_response.vsav --side "OpponentSide"
 
   # Watch a folder for new saves (auto-process mode)
-  python3 vassal_pbem.py watch --dir games/SPQR/ --side "Carthaginian" --pattern "*.vsav"
+  python3 vassal_pbem.py watch --dir games/MyGame/ --side "OpponentSide" --pattern "*.vsav"
 
   # Generate a .vlog with logged moves (for full replay in VASSAL)
-  python3 vassal_pbem.py turn --input game.vsav --output ai_turn.vlog --format vlog --side "Carthaginian"
+  python3 vassal_pbem.py turn --input game.vsav --output ai_turn.vlog --format vlog --side "OpponentSide"
 """
 
 import zipfile
