@@ -435,6 +435,52 @@ Trait field separator: `;` (most traits)
 
 ---
 
+## Generating .vsav and .vlog Files
+
+Use `vassal_move.py` to generate save/log files the opponent can load in VASSAL.
+
+### Critical Format Requirements
+
+1. **ZIP entries**: Output ZIP must contain `savedGame`, `savedata`, AND `moduledata`. Missing `savedata` causes VASSAL load errors.
+2. **savedata**: XML with the VASSAL version the user runs and a current timestamp.
+3. **moduledata**: Copy from the original save file unchanged.
+4. **Load from .vsav only**: Never reconstruct state from .vlog files (applying hundreds of LOG entries corrupts state). Always load from the user's most recent `.vsav`.
+
+### .vsav Generation
+
+```python
+from vassal_move import GameState, HexGrid, read_all_zip_entries
+state = GameState()
+state.load_from_file('input.vsav')
+grid = HexGrid()
+extra = read_all_zip_entries('input.vsav')  # Preserve ALL ZIP entries
+state.move_piece(piece_id, hex_col, hex_row, grid)
+state.write_vsav('output.vsav', extra_entries=extra)
+```
+
+### .vlog Generation
+
+Format: `[initial save state] ESC LOG\t[cmd1] ESC LOG\t[cmd2] ...`
+
+Each LOG entry is a **separate top-level command** delimited by ESC (`\x1b`). **Never nest ESC inside a LOG entry.**
+
+```python
+initial_state = read_save_raw('input.vsav')
+log_entries = [
+    "LOG\tCHAT<Claude_AI> - IO #1: RC-AS-XIV 3818 holds (in enemy ZOC, Rule 7.23)",
+    "LOG\tM/{pid}/{map}/{new_x}/{new_y}/null/{map}/{old_x}/{old_y}/null/Claude_AI",
+]
+full = initial_state + '\x1b' + '\x1b'.join(log_entries)
+# Write to ZIP with savedGame + savedata + moduledata
+```
+
+### Common Errors
+- **Missing savedata** → VASSAL "error loading, cancelled"
+- **Nested ESC in LOG entries** → VASSAL fails to parse
+- **Loading from .vlog** → State corruption. Always use .vsav.
+
+---
+
 ## Obfuscation Quick Reference
 
 **Decode:**
