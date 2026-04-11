@@ -45,22 +45,49 @@ See `STARTHERE.md` for the full step-by-step guide.
 
 ```
 README.md               You are here
-STARTHERE.md            Full onboarding guide (start here for detailed steps)
-VASSAL.md               VASSAL engine deep context (architecture, file formats)
+STARTHERE.md            Full onboarding guide
+ONBOARDING.md           How knowledge flows across games (READ BEFORE ADDING GAMES)
+VASSAL.md               VASSAL engine deep context
 LEARNING.md             Hex & counter wargame knowledge base (static baseline)
-INTEL.md                Cross-game intelligence (grows with each game and session)
+INTEL.md                Cross-game intelligence (grows with each game/session)
 vmod.md                 Module/save analysis skill reference
-vmod_analyzer.py        Automated .vmod module analyzer
-vassal_bridge.py        Live server bridge (TCP protocol client)
+
+vassal_framework/       PURE FRAMEWORK PACKAGE (no game-specific code)
+  __init__.py
+  grid.py               Hex/square grid math
+  units.py              Unit detection and battlefield queries
+  terrain.py            TerrainSystem abstract base
+  combat.py             CombatSystem abstract base
+  montecarlo.py         Probabilistic outcome simulation
+  ai.py                 AI decision engine
+  save_io.py            .vsav/.vlog read/write
+  templates/            Starter files for new games
+    terrain_template.py
+    combat_template.py
+    units_template.py
+    runner_template.py
+
+vmod_analyzer.py        Standalone .vmod analyzer
+vassal_bridge.py        Live server bridge (TCP)
 vassal_pbem.py          PBEM / hot-seat turn manager
-games/                  Game directories (one per game, gitignored)
+vassal_*.py             Compatibility shims for old imports
+
+games/                  GAME DIRECTORIES (gitignored)
   <GameName>/
-    <GameName>.vmod     VASSAL module file
-    <GameName>.md       Game rules, units, terrain, AI strategy
-    INTEL.md            Cross-scenario intelligence for this game
-    SESSION.md          Turn-by-turn session log with explainability
-    scenarios/          Per-scenario intelligence
-    *.pdf               Rulebooks, playbooks, charts
+    <gamename>_lib/     Game-specific Python package
+      __init__.py
+      terrain.py        Inherits TerrainSystem
+      combat.py         Inherits CombatSystem
+      units.py          Side classifier + unit type maps
+      runner.py         CLI runner
+    <GameName>.vmod
+    <GameName>.md       Game-specific context document
+    INTEL.md            Cross-scenario intelligence
+    SESSION.md          Session log
+    scenarios/
+      <ScenarioName>/
+        INTEL.md
+    *.pdf
 ```
 
 ## Explainability

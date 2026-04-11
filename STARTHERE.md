@@ -74,17 +74,21 @@ Ask Claude to create a `<GameName>.md` file by providing:
 3. The scenario/playbook PDF(s)
 
 Prompt:
-> "Analyze this module and these rulebooks. Create a game-specific .md file following the template in LEARNING.md Section 10. Cross-reference the module's pieces and properties with the rulebook's unit stats, terrain, and combat rules."
+> "Analyze this module and these rulebooks. Create a game-specific .md file and Python lib following the modular framework architecture in ONBOARDING.md."
 
-Claude will:
-- Produce a `<GameName>.md` in `games/<GameName>/` with:
-  - Turn sequence mapped to the module's TurnTracker
-  - Unit catalog (module pieces linked to rulebook stats)
-  - Terrain effects (grid geometry + rulebook TEC)
-  - Combat rules (CRT + modifiers)
-  - Scenario setups and victory conditions
-  - AI strategy notes
-- **Update LEARNING.md** -- append a Game Log entry (Section 12) and expand any baseline sections with new mechanics, terrain types, or AI insights from this game
+Claude will produce:
+- `games/<GameName>/<GameName>.md` -- Human-readable game context
+- `games/<GameName>/<gamename>_lib/` -- Python package extending the framework:
+  - `terrain.py` (subclass of `vassal_framework.TerrainSystem`)
+  - `combat.py` (subclass of `vassal_framework.CombatSystem`)
+  - `units.py` (side classifier and unit type maps)
+  - `runner.py` (CLI tool wiring it all together)
+- `games/<GameName>/INTEL.md` -- Cross-scenario intelligence
+- `games/<GameName>/SESSION.md` -- Session log template
+- Updates `INTEL.md` (root) with the new game
+- Updates `LEARNING.md` only if a new universal mechanic was discovered
+
+See **ONBOARDING.md** for the full onboarding process and how cross-game knowledge sharing works.
 
 ---
 
