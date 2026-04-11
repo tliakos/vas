@@ -435,6 +435,79 @@ Trait field separator: `;` (most traits)
 
 ---
 
+## Generic Grid and Unit Framework
+
+The framework includes two modules for generic vmod analysis that work across any VASSAL game:
+
+### `vassal_grid.py` -- Hex/Square Grid Math
+
+Parses any vmod's `buildFile.xml`, extracts grid parameters per board, and provides accurate pixel<->hex conversion matching the exact VASSAL formula (`HexGrid.java` + `HexGridNumbering.java`).
+
+```python
+from vassal_grid import ModuleGrid
+
+mg = ModuleGrid.from_vmod('game.vmod')
+# All maps and boards with their grids
+for map_name, boards in mg.maps.items():
+    for bname, board in boards.items():
+        col, row = board.pixel_to_hex(pixel_x, pixel_y)
+        x, y = board.hex_to_pixel(col, row)
+```
+
+**Critical grid attributes** (from VASSAL HexGrid XML):
+- `dx`, `dy`: hex width and full height
+- `x0`, `y0`: grid origin offset
+- `sideways`: true = flat-top hexes (rotated 90°)
+- `stagger`: true = odd columns offset by dy/2
+- `hOff`, `vOff`: numbering display offsets
+- `hDescend`, `vDescend`: numbering directions
+- `max_cols`, `max_rows`: board hex dimensions (needed for descend math)
+
+For multi-board maps, the active board must be detected from the save file's BoardPicker setup commands (e.g., `Main MapBoardPicker\tHeraclea\t0\t0`).
+
+### `vassal_units.py` -- Unit Scanner and Battlefield
+
+Walks a game state, identifies all combat units and leaders, and provides a queryable battlefield interface.
+
+```python
+from vassal_units import UnitScanner, Battlefield, detect_active_boards
+from vassal_move import GameState
+from vassal_grid import ModuleGrid
+
+mg = ModuleGrid.from_vmod('game.vmod')
+state = GameState()
+state.load_from_file('save.vsav')
+
+# Auto-detect which boards are loaded on each map
+active_boards = detect_active_boards(state)
+
+scanner = UnitScanner(mg, active_boards=active_boards)
+units = scanner.scan(state)
+bf = Battlefield(units)
+
+# Query examples
+falco = next(l for l in bf.leaders() if 'Falco' in l.name)
+in_range = bf.in_command_range(falco)  # all units within Cmd Range
+adjacent_enemies = bf.adjacent_enemies(unit)
+is_zoc = bf.is_in_zoc(unit)
+units_at_hex = bf.at_hex(27, 6)
+```
+
+**Detection capabilities:**
+- All combat units with side classification
+- Leaders with Command Range from `AreaOfEffect` trait
+- Leader Active/Finished state from BasicPiece name suffix (`/1` vs `/2`)
+- Hex positions using the active board's grid
+- Adjacent enemies and ZOC checks
+- Multi-board maps (one active board per map)
+
+**Known limitations:**
+- Cohesion Hits extraction needs full prototype expansion (TODO)
+- Unit Initiative ratings and TQ are on counter images, not in piece data
+- Side classification uses image filename prefixes (game-specific)
+
+---
+
 ## Generating .vsav and .vlog Files
 
 Use `vassal_move.py` to generate save/log files the opponent can load in VASSAL.
