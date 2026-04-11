@@ -435,6 +435,68 @@ Trait field separator: `;` (most traits)
 
 ---
 
+## Full Framework Architecture
+
+The VASSAL AI framework is built in 6 layers:
+
+```
+Layer 6: Decision Engine    vassal_ai.py
+                            ↓ uses
+Layer 5: Monte Carlo        vassal_montecarlo.py
+                            ↓ uses
+Layer 4: Combat System      vassal_combat.py     vassal_terrain.py
+                            ↓ uses               ↓ uses
+Layer 3: Battlefield        vassal_units.py
+                            ↓ uses
+Layer 2: Grid System        vassal_grid.py
+                            ↓ uses
+Layer 1: VASSAL Files       vassal_move.py (read/write .vsav/.vlog)
+```
+
+Each layer is generic and works with any VASSAL game. Game-specific
+implementations subclass the base classes (e.g., `SPQRCombat` extends
+`CombatSystem`, `SPQRTerrain` extends `TerrainSystem`).
+
+### Module quick reference
+
+| Module | Purpose | Key classes |
+|--------|---------|-------------|
+| `vassal_grid.py` | Hex/square grid math, multi-board maps | `ModuleGrid`, `HexGridConfig`, `Board` |
+| `vassal_units.py` | Unit detection and battlefield queries | `UnitScanner`, `Battlefield`, `Unit` |
+| `vassal_terrain.py` | Terrain types and movement costs | `TerrainSystem`, `TerrainType`, `TerrainMap` |
+| `vassal_combat.py` | Combat resolution (CRT, shock, missile) | `CombatSystem`, `SPQRCombat`, `CombatResult` |
+| `vassal_montecarlo.py` | Probabilistic outcome simulation | `MonteCarloSimulator`, `SimState`, `Move` |
+| `vassal_ai.py` | Decision engine with move ranking | `AIDecisionEngine`, `MoveOption` |
+| `vassal_move.py` | .vsav/.vlog read/write | `GameState`, `HexGrid` (basic) |
+| `vmod_analyzer.py` | Module structure analysis | `analyze_vmod()` |
+
+### Building a new game
+
+To onboard a new game:
+
+1. **Drop the .vmod into `games/<GameName>/`**
+2. **Run `python3 vmod_analyzer.py games/<GameName>/*.vmod`** to inspect structure
+3. **Use `ModuleGrid.from_vmod()`** to extract grid parameters automatically
+4. **Test pixel→hex conversion** against known starting positions from the scenario book
+5. **Subclass `TerrainSystem`** with the game's terrain types and rules
+6. **Subclass `CombatSystem`** with the game's combat resolution
+7. **Side classifier**: pass a function that classifies pieces by image filename prefix
+8. **Run `vassal_ai.py`** to evaluate any leader's turn
+
+### What's universal vs game-specific
+
+| Universal (works for any game) | Game-specific (subclass needed) |
+|-------------------------------|----------------------------------|
+| Grid extraction from buildFile.xml | Terrain types and costs |
+| Multi-board map handling | Combat resolution rules |
+| Unit position detection | Side classification |
+| Leader detection (AreaOfEffect) | Initiative ratings |
+| Adjacency / ZOC checks | Unit type code mapping |
+| Monte Carlo simulation | Win conditions / withdrawal levels |
+| Move enumeration | Special unit rules |
+
+---
+
 ## Generic Grid and Unit Framework
 
 The framework includes two modules for generic vmod analysis that work across any VASSAL game:

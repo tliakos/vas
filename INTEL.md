@@ -34,6 +34,11 @@ Cross-game insights confirmed by 2+ games. *(Empty until a second game is onboar
 - Directional ZOC creates flanking opportunities
 - Cohesion systems demand proactive withdrawal
 - Activation systems reward sector focus
+- Multi-board map modules need active board detection from save (BoardPicker setup commands)
+- Hex grid parameters MUST be extracted from buildFile.xml, never guessed
+- VASSAL state strings use nested SequenceEncoder escaping (each Decorator level adds backslashes)
+- Leader Active/Finished state is in BasicPiece name suffix (/1 vs /2)
+- Cohesion Hits / damage levels stored as Embellishment levels in OUTER->INNER chain order
 
 ---
 
@@ -46,6 +51,10 @@ Universal strategic insights confirmed by 2+ games. *(Empty until a second game 
 - Cavalry with pursuit rules is a strategic commitment, not a tactical one
 - Leader preservation is paramount in leader-dependent activation systems
 - Screen with expendable light units
+- Monte Carlo with N=300-500 iterations is sufficient for tactical decisions
+- Adjacency + ZOC + matchup superiority are the 3 critical factors for tactical wargames
+- AI should prefer FREE units for movement; LOCKED units for shock combat
+- Asymmetric matchups (heavy vs light): heavy almost never voluntarily attacked by light; ZOC stalemates favor whoever can't be hurt
 
 ---
 
