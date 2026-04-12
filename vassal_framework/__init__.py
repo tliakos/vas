@@ -81,6 +81,9 @@ from vassal_framework.ai import (
     leader_activation_generator, whole_side_activation_generator,
     default_scorer,
 )
+from vassal_framework.play import (
+    PlayManager, PhaseDefinition, PhaseType, GameTracker,
+)
 
 __all__ = [
     # Grid
