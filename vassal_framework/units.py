@@ -57,7 +57,8 @@ class Unit:
         self.hex_row = None       # Hex row number
         self.cohesion_hits = 0    # Current damage
         self.is_leader = False
-        self.command_range = None # Leaders only
+        self.command_range = None # Leaders only: hex radius for orders
+        self.initiative = None    # Leaders only: number of orders per activation
         self.is_finished = False  # Leader Finished/Active state
         self.flipped = False      # Combat unit reduced/flipped state
         self.missile_low = False

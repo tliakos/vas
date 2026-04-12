@@ -31,9 +31,9 @@ VASSAL module files (.vmod) and rulebook PDFs are NOT tracked in git
 (they're large and copyrighted). Place them manually:
 
 ```bash
-# Example for SPQR:
-cp ~/Downloads/SPQR_Deluxe_v2.9alt.vmod games/SPQR/
-cp ~/Downloads/SPQR_rulebook.pdf games/SPQR/          # optional
+# Example for <GameName>:
+cp ~/Downloads/<GameModule>.vmod games/<GameName>/
+cp ~/Downloads/<GameName>_rulebook.pdf games/<GameName>/          # optional
 ```
 
 ### 3. Verify the setup
@@ -43,7 +43,7 @@ cp ~/Downloads/SPQR_rulebook.pdf games/SPQR/          # optional
 python3 -c "from vassal_framework import ModuleGrid; print('OK')"
 
 # Full validation of a game:
-python3 -m vassal_framework.validation SPQR --save games/SPQR/scenarios/heraclea/hera-004.vsav
+python3 -m vassal_framework.validation <GameName> --save games/<GameName>/scenarios/<scenario>/<save>.vsav
 ```
 
 ## How to play against the AI
@@ -67,10 +67,10 @@ The AI logic is baked into the game-specific Python code. Just run it:
 
 ```bash
 # Analyze a leader's activation
-python3 -m games.SPQR.spqr_lib.runner games/SPQR/scenarios/heraclea/hera-004.vsav Falco
+python3 -m games.<GameName>.<game>_lib.runner games/<GameName>/scenarios/<scenario>/<save>.vsav <leader>
 
 # Run a full turn with combat resolution, dice, pursuit, rout movement
-python3 games/SPQR/scenarios/heraclea/run_falco_turn.py
+python3 games/<GameName>/scenarios/<scenario>/run_falco_turn.py
 ```
 
 Output:
@@ -94,7 +94,7 @@ Then open Claude Code in the `vas/` directory and ask:
 > "Load hera-005.vsav and play the Epirote turn. Write roman_falco.vsav."
 
 Claude Code reads the save through the framework, makes tactical decisions
-using the SPQR-specific AI module, and generates the output files.
+using the game-specific AI module, and generates the output files.
 
 Requires: Anthropic API key or Claude subscription.
 
@@ -115,7 +115,7 @@ Requires: Anthropic API key or Claude subscription.
 - Use **PowerShell** or **Command Prompt** for running scripts
 - Replace `/` with `\` in file paths:
   ```powershell
-  python games\SPQR\spqr_lib\runner.py games\SPQR\scenarios\heraclea\hera-004.vsav Falco
+  python games\<GameName>\<game>_lib\runner.py games\<GameName>\scenarios\<scenario>\<save>.vsav <leader>
   ```
 - If `python3` is not found, try `python` (Windows installs as `python`)
 - For Claude Code CLI on Windows, use **WSL** (Windows Subsystem for Linux):
@@ -158,8 +158,8 @@ vas/                          -- Framework (public repo: tliakos/vas)
 ├── ONBOARDING.md             -- How to add a new game
 ├── STARTHERE.md              -- Quick orientation
 └── games/                    -- Game-specific AI (private repo: tliakos/vasai-games)
-    └── SPQR/
-        ├── spqr_lib/         -- Python AI: terrain, combat, sequences, tactics
+    └── <GameName>/
+        ├── <game>_lib/         -- Python AI: terrain, combat, sequences, tactics
         ├── scenarios/        -- .vsav, .vlog, INTEL.md
-        └── SPQR.md           -- Game overview
+        └── <GameName>.md           -- Game overview
 ```
