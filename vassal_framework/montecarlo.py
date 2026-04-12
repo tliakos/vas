@@ -11,13 +11,13 @@ single deterministic outcome, the AI evaluates the EXPECTED VALUE of
 each possible move and picks the best one.
 
 Usage:
-    sim = MonteCarloSimulator(combat_system=SPQRCombat())
+    from games.MyGame.mygame_lib.combat import MyGameCombat
+    sim = MonteCarloSimulator(combat_system=MyGameCombat())
     moves = [
-        Move('shock', attacker_id=..., defender_id=..., position='flank'),
-        Move('move', unit_id=..., to_hex=(27, 8)),
+        Move('shock', unit_id='...', target_id='...', position='flank'),
+        Move('move', unit_id='...', to_hex=(27, 8)),
     ]
-    result = sim.evaluate_sequence(battlefield, moves, n_iterations=1000)
-    print(result.expected_value)
+    result = sim.evaluate_sequence(state, moves, n_iterations=1000)
     print(result.win_probability)
     print(result.risk_assessment)
 """
@@ -324,37 +324,13 @@ class MonteCarloSimulator:
 if __name__ == '__main__':
     print("vassal_framework.montecarlo is a library module.")
     print("Use it via game-specific simulators or import directly:")
-    print("  from vassal_framework.montecarlo import MonteCarloSimulator")
+    print("  from vassal_framework.montecarlo import MonteCarloSimulator, SimState, SimUnit, Move")
+    print()
+    print("Example pattern:")
+    print("  from games.MyGame.mygame_lib.combat import MyGameCombat")
+    print("  mc = MonteCarloSimulator(combat_system=MyGameCombat())")
+    print("  state = SimState()")
+    print("  # ... add units ...")
+    print("  result = mc.evaluate_sequence(state, [Move('hold')], n_iterations=1000)")
+    print("  print(result.summary())")
     import sys; sys.exit(0)
-
-    # Example (unreachable, kept as documentation):
-    sim_combat = None  # Replace with game-specific combat system
-    mc = MonteCarloSimulator(combat_system=sim_combat)
-
-    # Build a test scenario:
-    # 1 Roman LG (size 5, TQ 6) vs 1 Macedonian PH (size 7, TQ 7)
-    state = SimState()
-    state.attacker_withdrawal = 30
-    state.defender_withdrawal = 25
-
-    state.add_unit(SimUnit('lg1', 'attacker', 'LG', 5, 6, rout_points=5))
-    state.add_unit(SimUnit('ph1', 'defender', 'PH', 7, 7, rout_points=7))
-    state.add_unit(SimUnit('ph2', 'defender', 'PH', 7, 7, rout_points=7))
-
-    # Option A: Frontal attack
-    option_a = [Move('shock', unit_id='lg1', target_id='ph1', position='frontal')]
-    # Option B: Flank attack
-    option_b = [Move('shock', unit_id='lg1', target_id='ph1', position='flank')]
-    # Option C: Hold
-    option_c = [Move('hold')]
-
-    results = mc.compare_options(state, [
-        ('Frontal attack', option_a),
-        ('Flank attack', option_b),
-        ('Hold position', option_c),
-    ], n_iterations=2000)
-
-    print("=== Move Comparison ===")
-    for name, r in results:
-        print(f"\n--- {name} ---")
-        print(r.summary())

@@ -2,25 +2,65 @@
 """
 VASSAL AI Decision Engine -- Move evaluation and ranking.
 
-Given a battlefield state and a leader to activate, this engine:
-1. Enumerates all legal moves for units in command range
-2. Generates candidate move sequences (single moves, combinations)
-3. Runs Monte Carlo simulation on each candidate
-4. Ranks options by expected value with risk assessment
-5. Returns top-N recommendations with full explainability
+This engine is GAME-AGNOSTIC. It does not know about leaders, hexes,
+or any specific activation model. Game libs plug in:
 
-This is the brain that drives AI play. Game-specific rules are passed in
-via the rules engine; the decision logic is generic.
+  - activation_generator: enumerates ActivationContext objects from a
+    battlefield. An "activation" is a generic turn opportunity --
+    a leader issuing orders (GBoH), a formation activating (OCS), a card
+    being played (CDG), a faction taking an Op (COIN), or a whole-side
+    impulse (IGOUGO).
+
+  - candidate_generator: given an ActivationContext, returns candidate
+    MoveOption sequences (the actual actions the AI is considering).
+
+  - scorer: optional, computes expected_value from a SimulationResult.
+    Different game families care about different things (units lost,
+    territory held, victory points, morale).
+
+The framework provides default scorers and a simple leader-based
+activation generator for GBoH-style games. New games override the
+parts that don't fit.
 """
 
 import random
 import time
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Callable, Any
 from itertools import combinations, product
 
 from vassal_framework.units import Battlefield, Unit, hex_distance_offset, hex_neighbors
 from vassal_framework.montecarlo import MonteCarloSimulator, SimState, SimUnit, Move, SimulationResult
+
+
+# ---------------------------------------------------------------------------
+# Activation context -- generic "turn opportunity"
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ActivationContext:
+    """A generic 'turn opportunity' for one side to take actions.
+
+    This is the abstraction that lets the framework support any activation
+    model. The game lib's activation_generator returns a list of these.
+
+    Fields:
+      side: which side is acting ('Roman', 'Allied', 'Axis', etc.)
+      kind: free-form label for the activation type
+        ('leader', 'formation', 'phase', 'card', 'faction_op', 'impulse', ...)
+      description: human-readable description ("Falco activates", "Card: Charge!")
+      actor: optional Unit that drives the activation (e.g., a leader)
+      members: optional list of Units that participate (e.g., a formation)
+      n_actions: how many discrete actions are allowed (orders/MPs/etc.)
+      metadata: game-specific extras (card name, faction state, phase, ...)
+    """
+    side: str
+    kind: str = 'generic'
+    description: str = ''
+    actor: Optional[Unit] = None
+    members: Optional[List[Unit]] = None
+    n_actions: int = 1
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -45,92 +85,201 @@ class MoveOption:
 
 
 # ---------------------------------------------------------------------------
+# Default scorer
+# ---------------------------------------------------------------------------
+
+def default_scorer(sim_result: SimulationResult) -> float:
+    """Generic EV: reward damage dealt, penalize damage taken.
+
+    Game libs can replace with one that cares about VPs, terrain held, etc.
+    """
+    return (
+        sim_result.avg_units_lost_defender * 5
+        - sim_result.avg_units_lost_attacker * 3
+        + sim_result.avg_attacker_hits_dealt * 0.5
+        - sim_result.avg_defender_hits_taken * 0.3
+    )
+
+
+# ---------------------------------------------------------------------------
+# Default activation generators (built-in helpers for common patterns)
+# ---------------------------------------------------------------------------
+
+def leader_activation_generator(battlefield: Battlefield, side: Optional[str] = None,
+                                default_n_actions: int = 3) -> List[ActivationContext]:
+    """Default for GBoH-style games: one ActivationContext per active leader.
+
+    Use this in games where leaders activate and issue orders. For games
+    without leaders, supply your own activation_generator.
+    """
+    contexts = []
+    for ldr in battlefield.leaders(side=side, finished=False):
+        contexts.append(ActivationContext(
+            side=ldr.side,
+            kind='leader',
+            description=f"{ldr.name} activates (CR{ldr.command_range or '?'})",
+            actor=ldr,
+            n_actions=default_n_actions,
+        ))
+    return contexts
+
+
+def whole_side_activation_generator(battlefield: Battlefield,
+                                    side: str) -> List[ActivationContext]:
+    """Default for IGOUGO games: one ActivationContext for the whole side.
+
+    Use this for phase-based games where a side activates all its units
+    in sequence per phase.
+    """
+    members = [u for u in battlefield.by_side(side) if not u.is_leader]
+    return [ActivationContext(
+        side=side,
+        kind='impulse',
+        description=f"{side} player turn",
+        members=members,
+        n_actions=len(members),
+    )]
+
+
+# ---------------------------------------------------------------------------
 # AI Decision Engine
 # ---------------------------------------------------------------------------
 
 class AIDecisionEngine:
-    """The AI's brain. Evaluates moves and recommends the best ones."""
+    """The AI's brain. Evaluates activation options and recommends the best ones.
 
-    def __init__(self, combat_system=None, terrain_system=None, mc_iterations=500):
+    The engine is GAME-AGNOSTIC. The game lib supplies callbacks that
+    handle all game-specific decisions:
+
+    Args:
+      combat_system: game-specific CombatSystem subclass instance
+      terrain_system: game-specific TerrainSystem subclass instance
+      mc_iterations: Monte Carlo iterations per move evaluation
+      unit_stats_provider: callback (unit_type_code) -> {size, tq, rout_points}
+      activation_generator: callback (battlefield) -> List[ActivationContext]
+        Determines what activation opportunities exist (leaders, formations,
+        cards, phases, factions, etc.). If None, defaults to a leader-based
+        generator for backward compatibility.
+      candidate_generator: callback (battlefield, ActivationContext)
+                                  -> List[MoveOption]
+        Produces candidate action sequences for a given activation. REQUIRED
+        if you call evaluate_activation; the framework cannot guess your
+        game's actions.
+      scorer: optional callback (SimulationResult) -> float
+        Computes expected_value. If None, uses default_scorer (loss/damage
+        based). Game libs that care about VPs/territory should override.
+    """
+
+    def __init__(self, combat_system=None, terrain_system=None,
+                 mc_iterations=500, unit_stats_provider=None,
+                 activation_generator=None, candidate_generator=None,
+                 scorer=None):
         self.combat_system = combat_system
         self.terrain_system = terrain_system
         self.mc_iterations = mc_iterations
         self.simulator = MonteCarloSimulator(combat_system=combat_system)
+        self.unit_stats_provider = unit_stats_provider or self._default_stats
+        self.activation_generator = activation_generator
+        self.candidate_generator = candidate_generator
+        self.scorer = scorer or default_scorer
 
-    def evaluate_leader_turn(self, battlefield, leader, max_options=5):
-        """Evaluate all options for activating a leader and return top-N.
+    # ---- Public API: generic activation evaluation ------------------------
 
-        Args:
-          battlefield: Battlefield instance with current game state
-          leader: Unit (leader) being activated
-          max_options: number of top options to return
+    def list_activations(self, battlefield, side=None):
+        """Return all currently legal ActivationContext objects.
 
-        Returns:
-          List of MoveOption objects, sorted best-to-worst
+        If activation_generator is set, calls it. Otherwise falls back to
+        leader_activation_generator for GBoH-style games.
         """
-        if not leader.is_leader:
-            return []
+        if self.activation_generator:
+            ctxs = self.activation_generator(battlefield)
+        else:
+            ctxs = leader_activation_generator(battlefield)
+        if side is not None:
+            ctxs = [c for c in ctxs if c.side == side]
+        return ctxs
 
-        if leader.is_finished:
-            return []  # Can't activate Finished leader
+    def evaluate_activation(self, battlefield, context, max_options=5):
+        """Evaluate options for any activation context, return top-N.
 
-        # Get units in command range
-        in_range = battlefield.in_command_range(leader)
-        side = leader.side
-        controllable = [(u, d) for u, d in in_range if u.side == side]
+        Works for leaders, formations, cards, factions, impulses --
+        anything the candidate_generator can produce options for.
+        """
+        if not self.candidate_generator:
+            # Fall back to built-in leader/hex candidate generator if a leader
+            # context was passed (backward compatibility)
+            if context.kind == 'leader' and context.actor:
+                candidates = self._builtin_leader_candidates(battlefield, context)
+            else:
+                raise ValueError(
+                    "AIDecisionEngine has no candidate_generator. "
+                    "Provide one in the constructor for non-leader activations."
+                )
+        else:
+            candidates = self.candidate_generator(battlefield, context)
 
-        # Generate candidate move options
-        candidates = self._generate_candidates(battlefield, leader, controllable)
-
-        # Build a SimState from the battlefield for Monte Carlo
-        sim_state = self._battlefield_to_simstate(battlefield, side)
-
-        # Evaluate each candidate
+        sim_state = self._battlefield_to_simstate(battlefield, context.side)
         evaluated = []
         for cand in candidates:
             sim_result = self.simulator.evaluate_sequence(
                 sim_state, cand.moves, n_iterations=self.mc_iterations
             )
-            cand.expected_value = (
-                sim_result.avg_units_lost_defender * 5
-                - sim_result.avg_units_lost_attacker * 3
-                + sim_result.avg_attacker_hits_dealt * 0.5
-                - sim_result.avg_defender_hits_taken * 0.3
-            )
+            cand.expected_value = self.scorer(sim_result)
             cand.win_probability = sim_result.win_probability
             cand.risk = sim_result.risk_assessment
             cand.sim_result = sim_result
             evaluated.append(cand)
 
-        # Sort by EV descending, with risk as tiebreaker
         evaluated.sort(key=lambda x: (
             -x.expected_value,
             x.sim_result.catastrophe_probability if x.sim_result else 0,
         ))
-
         return evaluated[:max_options]
 
-    def _generate_candidates(self, battlefield, leader, controllable):
-        """Generate candidate move sequences for this leader."""
+    # ---- Backward-compatible leader API -----------------------------------
+
+    def evaluate_leader_turn(self, battlefield, leader, max_options=5):
+        """Backward-compatible: evaluate a leader's activation.
+
+        New code should use evaluate_activation() with an ActivationContext.
+        This wrapper builds a leader context and dispatches.
+        """
+        if not leader.is_leader or leader.is_finished:
+            return []
+        ctx = ActivationContext(
+            side=leader.side,
+            kind='leader',
+            description=f"{leader.name} activates",
+            actor=leader,
+            n_actions=3,
+        )
+        return self.evaluate_activation(battlefield, ctx, max_options=max_options)
+
+    def _builtin_leader_candidates(self, battlefield, context):
+        """Default candidate generator for leader-style activations.
+
+        Works only when:
+          - context.actor is a leader Unit
+          - the game uses hex-grid movement
+          - 'shock' and 'move' make sense as actions
+
+        Game libs should supply their own candidate_generator if any of
+        these assumptions don't hold.
+        """
+        leader = context.actor
+        side = context.side
+        in_range = battlefield.in_command_range(leader)
+        controllable = [(u, d) for u, d in in_range if u.side == side]
         candidates = []
-        side = leader.side
 
-        # The number of orders the leader can issue = Initiative rating
-        # Default to 3 if we can't determine
-        n_orders = 3  # TODO: extract from leader stats
-
-        # Option 1: HOLD - issue no orders
-        hold = MoveOption(
+        candidates.append(MoveOption(
             name="HOLD",
             moves=[Move('hold', notes='Issue no orders')],
             description="Activate leader, issue no orders. Conserve tempo.",
-            rule_refs=["5.21"],
-        )
-        candidates.append(hold)
+            rule_refs=[],
+        ))
 
-        # Option 2: Each adjacent enemy that can be shocked - try shock attacks
-        free_units = []
-        zoc_units = []
+        free_units, zoc_units = [], []
         for u, d in controllable:
             if u.is_leader: continue
             if battlefield.is_in_zoc(u):
@@ -138,92 +287,84 @@ class AIDecisionEngine:
             else:
                 free_units.append(u)
 
-        # Generate shock options for ZOC-locked units (already adjacent)
-        for unit in zoc_units[:3]:  # Cap to top 3 to avoid explosion
+        for unit in zoc_units[:3]:
             adj_enemies = battlefield.adjacent_enemies(unit)
             for enemy in adj_enemies[:2]:
-                # Determine position (default frontal, TODO: detect facing)
-                position = 'frontal'
-
-                option = MoveOption(
+                candidates.append(MoveOption(
                     name=f"SHOCK {unit.name}->{enemy.name}",
                     moves=[Move('shock', unit_id=unit.pid, target_id=enemy.pid,
-                                position=position, rule_ref='8.42')],
-                    description=f"{unit.name} at {unit.hex_id()} shocks {enemy.name} at {enemy.hex_id()}",
-                    rule_refs=['8.42', '8.46'],
-                )
-                candidates.append(option)
+                                position='frontal')],
+                    description=f"{unit.name} at {unit.hex_id()} shocks "
+                                f"{enemy.name} at {enemy.hex_id()}",
+                ))
+                candidates.append(MoveOption(
+                    name=f"SHOCK {unit.name}->{enemy.name} (FLANK)",
+                    moves=[Move('shock', unit_id=unit.pid, target_id=enemy.pid,
+                                position='flank')],
+                    description=f"{unit.name} flank attacks {enemy.name}",
+                    notes=['Position superiority'],
+                ))
 
-                # Also try flank attack version
-                if position != 'flank':
-                    flank_option = MoveOption(
-                        name=f"SHOCK {unit.name}->{enemy.name} (FLANK)",
-                        moves=[Move('shock', unit_id=unit.pid, target_id=enemy.pid,
-                                    position='flank', rule_ref='8.46')],
-                        description=f"{unit.name} flank attacks {enemy.name}",
-                        rule_refs=['8.46'],
-                        notes=['Position superiority doubles defender hits'],
-                    )
-                    candidates.append(flank_option)
-
-        # Generate movement options for free units
         for unit in free_units[:3]:
-            # Find adjacent empty hexes
             for nc, nr in hex_neighbors(unit.hex_col, unit.hex_row):
-                # Check destination
                 occupants = battlefield.at_hex(nc, nr)
                 blocked = any(o.side != side and not o.is_leader for o in occupants)
                 if blocked:
                     continue
-
-                option = MoveOption(
+                candidates.append(MoveOption(
                     name=f"MOVE {unit.name} to {nc:02d}{nr:02d}",
-                    moves=[Move('move', unit_id=unit.pid, to_hex=(nc, nr),
-                                rule_ref='6.11')],
+                    moves=[Move('move', unit_id=unit.pid, to_hex=(nc, nr))],
                     description=f"{unit.name} moves from {unit.hex_id()} to {nc:02d}{nr:02d}",
-                    rule_refs=['6.11'],
-                )
-                candidates.append(option)
+                ))
 
         return candidates
 
+    @staticmethod
+    def _default_stats(unit_type_code):
+        """Generic default stats when no game-specific provider is supplied.
+
+        Returns neutral mid-range values. Game-specific libs should provide
+        their own unit_stats_provider for accurate Monte Carlo evaluation.
+        """
+        return {'size': 4, 'tq': 5, 'rout_points': 4}
+
     def _battlefield_to_simstate(self, battlefield, ai_side):
-        """Convert a Battlefield to a SimState for Monte Carlo."""
+        """Convert a Battlefield to a SimState for Monte Carlo.
+
+        Uses self.unit_stats_provider to map unit type codes to stats.
+        Each unit's `unit_type` field is parsed for a code like (PH), (LG),
+        or used directly if it's a bare code.
+        """
+        import re
+
         sim = SimState()
         sim.attacker_withdrawal = 100  # TODO: from scenario
         sim.defender_withdrawal = 100
 
         for u in battlefield.units:
             if u.is_leader: continue
-            # Map side to attacker/defender from AI's perspective
             sim_side = 'attacker' if u.side == ai_side else 'defender'
 
-            # Estimate size and TQ from unit type (TODO: read from counter)
-            size_map = {
-                'PH': 7, 'HI': 5, 'LG': 5, 'MI': 4, 'LI': 3,
-                'SK': 2, 'HC': 5, 'LC': 4, 'RC': 5, 'EL': 6,
-            }
-            tq_map = {
-                'PH': 7, 'HI': 6, 'LG': 6, 'MI': 5, 'LI': 5,
-                'SK': 4, 'HC': 7, 'LC': 5, 'RC': 6, 'EL': 7,
-            }
-
+            # Extract unit type code from the unit type string
             unit_type_code = ''
             if u.unit_type:
-                # Extract code from "Phalanx (PH)" -> "PH"
-                import re
-                m = re.search(r'\(([A-Z]+)\)', u.unit_type)
+                m = re.search(r'\(([A-Z_]+)\)', u.unit_type)
                 if m:
                     unit_type_code = m.group(1)
+                else:
+                    unit_type_code = u.unit_type
 
-            size = size_map.get(unit_type_code, 4)
-            tq = tq_map.get(unit_type_code, 5)
+            # Get stats from the game-specific provider
+            stats = self.unit_stats_provider(unit_type_code)
+            size = stats.get('size', 4)
+            tq = stats.get('tq', 5)
+            rp = stats.get('rout_points', size)
 
             sim_unit = SimUnit(
                 id=u.pid, side=sim_side, unit_type=unit_type_code,
                 size=size, tq=tq, hits=u.cohesion_hits,
                 col=u.hex_col or 0, row=u.hex_row or 0,
-                rout_points=size,  # Approximate RP = size
+                rout_points=rp,
             )
             sim.add_unit(sim_unit)
 
@@ -235,29 +376,11 @@ class AIDecisionEngine:
 # ---------------------------------------------------------------------------
 
 if __name__ == '__main__':
+    import sys
     print("vassal_framework.ai is a library module.")
     print("Use it via game-specific runners:")
-    print("  python3 -m games.SPQR.spqr_lib.runner <save.vsav> <leader>")
+    print("  python3 -m games.<GameName>.<game>_lib.runner <save.vsav> <leader>")
     print()
     print("Or import in your own script:")
     print("  from vassal_framework.ai import AIDecisionEngine")
     sys.exit(0)
-
-    # Build AI engine
-    combat = SPQRCombat()
-    terrain = SPQRTerrain()
-    ai = AIDecisionEngine(combat_system=combat, terrain_system=terrain, mc_iterations=300)
-
-    # Evaluate
-    options = ai.evaluate_leader_turn(bf, leader, max_options=10)
-
-    print(f"=== TOP {len(options)} MOVE OPTIONS ===\n")
-    for i, opt in enumerate(options):
-        print(f"{i+1}. {opt.name}")
-        print(f"   Description: {opt.description}")
-        print(f"   Rule refs: {', '.join(opt.rule_refs)}")
-        print(f"   EV: {opt.expected_value:.2f} | Win%: {opt.win_probability*100:.1f}% | {opt.risk}")
-        if opt.sim_result:
-            r = opt.sim_result
-            print(f"   Avg dmg dealt: {r.avg_attacker_hits_dealt:.1f} | Avg dmg taken: {r.avg_defender_hits_taken:.1f}")
-        print()

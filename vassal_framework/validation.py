@@ -8,8 +8,7 @@ sensible, AI runs end-to-end.
 
 Usage:
     python3 -m vassal_framework.validation <GameName>
-    python3 -m vassal_framework.validation SPQR
-    python3 -m vassal_framework.validation SPQR --save games/SPQR/scenarios/heraclea/hera-004.vsav
+    python3 -m vassal_framework.validation <GameName> --save <path/to/save.vsav>
 """
 
 import os

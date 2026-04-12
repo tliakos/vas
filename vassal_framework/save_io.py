@@ -389,7 +389,11 @@ class GameState:
 # ---------------------------------------------------------------------------
 
 class HexGrid:
-    """Hex grid coordinate conversion for SPQR-style maps."""
+    """Legacy hex grid converter (kept for backward compat).
+
+    For new code, use vassal_framework.grid.HexGridConfig which extracts
+    parameters from the actual vmod buildFile.xml.
+    """
 
     def __init__(self, dx=110.5, dy=96.0, x0=56, y0=18):
         self.dx = dx
@@ -482,7 +486,7 @@ def main():
         print()
         print("moves.json format:")
         print('  [')
-        print('    {"from_hex": "2916", "to_hex": "2817", "image_pattern": "LG-Has-V", "name": "V Hastati"},')
+        print('    {"from_hex": "2916", "to_hex": "2817", "image_pattern": "Unit-Pattern", "name": "Unit Name"},')
         print('    {"piece_id": "1234567890", "to_hex": "3015"},')
         print('  ]')
         sys.exit(1)

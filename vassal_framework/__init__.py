@@ -25,19 +25,29 @@ Layer 1: save_io        GameState, save/load
 
 ```python
 from vassal_framework import grid, units, save_io
-from games.SPQR.spqr_lib import terrain, combat
+from games.MyGame.mygame_lib import terrain, combat
+from games.MyGame.mygame_lib.units import (
+    my_side_classifier, my_unit_type_classifier,
+    my_is_skirmisher, my_unit_stats_provider,
+)
 
 # Load game
-mg = grid.ModuleGrid.from_vmod('games/SPQR/SPQR.vmod')
+mg = grid.ModuleGrid.from_vmod('games/MyGame/MyGame.vmod')
 state = save_io.GameState()
 state.load_from_file('save.vsav')
 
 # Game-specific systems
-terrain_sys = terrain.SPQRTerrain()
-combat_sys = combat.SPQRCombat()
+terrain_sys = terrain.MyGameTerrain()
+combat_sys = combat.MyGameCombat()
 
-# Generic pipeline
-scanner = units.UnitScanner(mg, active_boards=units.detect_active_boards(state))
+# Generic pipeline with game-specific callbacks
+scanner = units.UnitScanner(
+    mg,
+    active_boards=units.detect_active_boards(state),
+    side_classifier=my_side_classifier,
+    unit_type_classifier=my_unit_type_classifier,
+    is_skirmisher_check=my_is_skirmisher,
+)
 battlefield = units.Battlefield(scanner.scan(state))
 ```
 
@@ -66,7 +76,11 @@ from vassal_framework.combat import (
 from vassal_framework.montecarlo import (
     MonteCarloSimulator, SimState, SimUnit, Move, SimulationResult,
 )
-from vassal_framework.ai import AIDecisionEngine, MoveOption
+from vassal_framework.ai import (
+    AIDecisionEngine, MoveOption, ActivationContext,
+    leader_activation_generator, whole_side_activation_generator,
+    default_scorer,
+)
 
 __all__ = [
     # Grid
@@ -83,5 +97,7 @@ __all__ = [
     # Monte Carlo
     'MonteCarloSimulator', 'SimState', 'SimUnit', 'Move', 'SimulationResult',
     # AI
-    'AIDecisionEngine', 'MoveOption',
+    'AIDecisionEngine', 'MoveOption', 'ActivationContext',
+    'leader_activation_generator', 'whole_side_activation_generator',
+    'default_scorer',
 ]

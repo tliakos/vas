@@ -22,28 +22,18 @@ from vassal_framework.grid import ModuleGrid
 # ---------------------------------------------------------------------------
 # Unit classification
 # ---------------------------------------------------------------------------
-
-# Roman unit prefixes (SPQR-specific but used generically)
-ROMAN_PREFIXES = ['LG-', 'RC-', 'LI-Vel', 'LI-ASVel', 'HI-Tri', 'HI-ASTri']
-EPIROTE_PREFIXES = []  # Everything else by default
-
-# Unit type lookup
-UNIT_TYPE_PATTERNS = {
-    'PH-': 'Phalanx (PH)',
-    'HI-': 'Heavy Infantry (HI)',
-    'LG-': 'Legion (LG)',
-    'MI-': 'Medium Infantry (MI)',
-    'LI-': 'Light Infantry (LI)',
-    'SK-': 'Skirmisher (SK)',
-    'VE-': 'Velites (VE)',
-    'HC-': 'Heavy Cavalry (HC)',
-    'LC-': 'Light Cavalry (LC)',
-    'RC-': 'Roman Cavalry (RC)',
-    'EL-': 'Elephant (EL)',
-    'CH-': 'Chariot (CH)',
-    'LN-': 'Lancer (LN)',
-    'TR-': 'Triarii (TR)',
-}
+#
+# This module is GAME-AGNOSTIC. It provides the abstract Unit, UnitScanner,
+# and Battlefield classes. Game-specific unit types, side classifiers, and
+# stat mappings live in games/<GameName>/<game>_lib/units.py.
+#
+# UnitScanner accepts callbacks:
+#   - side_classifier(image_filename) -> side string
+#   - unit_type_classifier(image_filename) -> unit_type code (optional)
+#   - is_skirmisher(unit) -> bool (optional, for ZOC rules)
+#
+# These callbacks let each game implement its own classification logic
+# without polluting the framework with game-specific codes.
 
 
 # ---------------------------------------------------------------------------
@@ -57,8 +47,8 @@ class Unit:
         self.pid = ''
         self.name = ''
         self.image = ''
-        self.unit_type = ''      # Type code (PH, HI, LG, RC, LC, etc.)
-        self.side = ''            # 'Roman' or 'Epirote' (or game-specific)
+        self.unit_type = ''      # Game-specific type code (set by unit_type_classifier)
+        self.side = ''            # Game-specific side (set by side_classifier)
         self.map_name = ''        # Map name
         self.board_name = ''      # Board name on that map
         self.pixel_x = 0
@@ -110,30 +100,51 @@ def detect_active_boards(game_state):
 
 
 class UnitScanner:
-    """Scans a GameState and extracts a complete unit registry with hex positions."""
+    """Scans a GameState and extracts a complete unit registry with hex positions.
 
-    def __init__(self, module_grid: ModuleGrid, side_classifier=None,
+    This class is GAME-AGNOSTIC. To make it work for a specific game, pass:
+
+      side_classifier: function(image_filename) -> side string
+        Maps a piece's image filename to its side. REQUIRED for any game
+        that has more than one player side. Without this, all units are
+        classified as 'Unknown'.
+
+      unit_type_classifier: function(image_filename) -> type_code (optional)
+        Maps a piece's image filename to its unit type code (e.g., 'INF',
+        'PH', 'ARM'). If None, unit_type is left empty.
+
+      is_skirmisher_check: function(unit) -> bool (optional)
+        Returns True if the unit is a skirmisher (doesn't exert ZOC).
+        If None, ZOC checks consider all combat units to exert ZOC.
+    """
+
+    def __init__(self, module_grid: ModuleGrid,
+                 side_classifier=None,
+                 unit_type_classifier=None,
+                 is_skirmisher_check=None,
                  active_boards=None):
-        """
-        module_grid: ModuleGrid instance for the loaded vmod
-        side_classifier: optional function(image_filename) -> side string
-        active_boards: dict {map_name: board_name} indicating which board is loaded
-                       on each map. Auto-detected from save if not provided.
-        """
         self.module_grid = module_grid
         self.side_classifier = side_classifier or self._default_classifier
+        self.unit_type_classifier = unit_type_classifier
+        self.is_skirmisher_check = is_skirmisher_check
         self.active_boards = active_boards or {}
 
     @staticmethod
     def _default_classifier(image):
-        """Default side classification based on image filename prefix."""
-        for p in ROMAN_PREFIXES:
-            if image.startswith(p):
-                return 'Roman'
-        return 'Epirote'
+        """Default classifier returns 'Unknown'.
+
+        Game libs MUST provide their own side_classifier to get meaningful
+        side classification.
+        """
+        return 'Unknown'
 
     def scan(self, game_state):
-        """Scan a GameState object and return a list of Unit instances."""
+        """Scan a GameState object and return a list of Unit instances.
+
+        Two-pass: first pass extracts Unit objects. Second pass walks the
+        full piece list looking for status-marker pieces (Engaged, etc.)
+        and propagates their state to co-located units.
+        """
         # Auto-detect active boards if not provided
         if not self.active_boards:
             self.active_boards = detect_active_boards(game_state)
@@ -143,7 +154,55 @@ class UnitScanner:
             unit = self._parse_piece(pid, ptype, pstate, game_state)
             if unit:
                 units.append(unit)
+
+        # Second pass: detect status markers (Engaged, etc.) and propagate
+        # them to units. Markers are separate pieces co-located on a hex
+        # with the unit they reference. We match by hex position and (when
+        # available) by ParentID linking back to the unit's pid.
+        self._propagate_status_markers(game_state, units)
+
         return units
+
+    def _propagate_status_markers(self, game_state, units):
+        """Find Marker_* pieces and apply their state to co-located units.
+
+        Recognizes:
+          - Marker_Engaged.jpg → unit.engaged = True
+        """
+        # Build a quick lookup: pid -> Unit
+        units_by_pid = {u.pid: u for u in units}
+        # And by hex
+        units_by_hex = defaultdict(list)
+        for u in units:
+            if u.hex_col is not None:
+                units_by_hex[(u.hex_col, u.hex_row)].append(u)
+
+        for pid, (ptype, pstate) in game_state.pieces.items():
+            if 'Marker_Engaged' not in ptype:
+                continue
+
+            # Find ParentID linking back to a real unit
+            parent_match = re.search(r'ParentID;(\d+)', pstate)
+            if parent_match:
+                parent_pid = parent_match.group(1)
+                if parent_pid in units_by_pid:
+                    units_by_pid[parent_pid].engaged = True
+
+            # Also mark all units sharing the marker's hex as engaged.
+            # In SPQR, an Engaged marker is dropped on each engaged unit's
+            # hex, so co-location is the simpler heuristic.
+            map_name, x, y = game_state.get_piece_position(pid)
+            if map_name and x > 0 and y > 0:
+                board = None
+                if map_name in self.active_boards:
+                    board = self.module_grid.get_board(map_name, self.active_boards[map_name])
+                if board is None:
+                    board = self.module_grid.find_board_for_pixel(map_name, x, y)
+                if board:
+                    h = board.pixel_to_hex(x, y)
+                    if h:
+                        for u in units_by_hex.get(h, []):
+                            u.engaged = True
 
     def _parse_piece(self, pid, ptype, pstate, game_state):
         """Parse a single piece (AddPiece command) into a Unit."""
@@ -221,21 +280,19 @@ class UnitScanner:
             # Derive name from image
             unit.name = unit_imgs[0].replace('-B.png', '').replace('-F.png', '').replace('.png', '')
 
-        # Determine side first (uses coded image)
+        # Determine side via the game-specific classifier
+        # For leaders, the classifier is called with the leader's piece image
+        # (typically a .jpg like "RomanLeader_..." or "GermanLeader_...")
         if is_leader:
-            # Leaders: derive side from piece image filename in state
-            if 'RomanLeader' in pstate:
-                unit.side = 'Roman'
-            elif 'MacedonLeader' in pstate or 'Greek' in pstate[:500]:
-                unit.side = 'Epirote'
-            else:
-                unit.side = 'Unknown'
+            # Find the leader image in the state (BasicPiece reference)
+            leader_img_match = re.search(r'piece;[^;]*;[^;]*;([^;]+\.jpg)', pstate)
+            classify_img = leader_img_match.group(1) if leader_img_match else ''
+            unit.side = self.side_classifier(classify_img)
         else:
-            # Combat units: classify based on coded image (LG-, RC-, HC-, etc.)
-            # Prefer the coded image (e.g., LG-ASCo-XV-B.png) over the descriptive one
+            # Combat units: prefer the coded image (e.g., XX-name.png) over descriptive
             coded_img = None
             for i in unit_imgs:
-                if re.match(r'^[A-Z]{2}-', i):  # Two-letter unit type prefix
+                if re.match(r'^[A-Z]{2,4}[-_]', i):  # Type prefix
                     coded_img = i
                     break
             classify_img = coded_img or (unit_imgs[0] if unit_imgs else '')
@@ -245,12 +302,9 @@ class UnitScanner:
                 unit.image = coded_img
                 unit.name = coded_img.replace('-B.png', '').replace('-F.png', '').replace('.png', '')
 
-        # Classify unit type from the coded image (after we've set it)
-        if unit.image:
-            for prefix, type_name in UNIT_TYPE_PATTERNS.items():
-                if unit.image.startswith(prefix):
-                    unit.unit_type = type_name
-                    break
+        # Classify unit type via the game-specific callback if provided
+        if unit.image and self.unit_type_classifier:
+            unit.unit_type = self.unit_type_classifier(unit.image) or ''
 
         # Extract Command Range from AreaOfEffect trait (leaders only)
         if is_leader:
@@ -263,10 +317,15 @@ class UnitScanner:
         # contains the COH Hits embellishment level as a small integer
         unit.cohesion_hits = self._extract_cohesion_hits(pstate)
 
-        # Detect status flags from state
-        if 'Routed' in slot_name:
+        # Detect status flags. NOTE: slot_name from a placemark trait is the
+        # placemark's TARGET, not the unit's own slot. Active combat units
+        # often reference a "Routed" placemark target -- that doesn't mean
+        # they're routed. Only treat as routed if the unit's own piece image
+        # is a routed marker, or if its containing slot is literally a
+        # routed pile (matched at the END of the slot name).
+        if unit.image and ('Marker_Routed' in unit.image or 'Routed' in unit.image):
             unit.routed = True
-        if 'Engaged' in slot_name:
+        if unit.image and 'Marker_Engaged' in unit.image:
             unit.engaged = True
 
         return unit
@@ -399,17 +458,23 @@ class Battlefield:
                     result.append(u2)
         return result
 
-    def is_in_zoc(self, unit):
+    def is_in_zoc(self, unit, is_skirmisher_check=None):
         """Check if a unit is in any enemy ZOC.
 
-        ZOC extends into Front hexes only per Rule 7.21 (in SPQR), but we
-        approximate by checking adjacency. Skirmishers without missiles
-        and routed/leader pieces don't exert ZOC.
+        Most wargames use full-hex ZOC for combat units, with exceptions
+        for routed units, leaders, and (in some games) skirmishers.
+
+        Args:
+          unit: the unit to check
+          is_skirmisher_check: optional callback (unit) -> bool that returns
+            True if the unit is a skirmisher (doesn't exert ZOC). If None,
+            all non-routed combat units are assumed to exert ZOC.
         """
         for enemy in self.adjacent_enemies(unit):
-            # Skirmishers and routed don't exert ZOC
-            if 'SK-' in (enemy.image or ''): continue
-            if enemy.routed: continue
+            if enemy.routed:
+                continue
+            if is_skirmisher_check and is_skirmisher_check(enemy):
+                continue
             return True
         return False
 
@@ -433,33 +498,13 @@ class Battlefield:
 # ---------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    if len(sys.argv) < 3:
-        print("Usage: python3 vassal_units.py <module.vmod> <save.vsav>")
-        sys.exit(1)
-
-    from vassal_framework.save_io import GameState
-
-    mg = ModuleGrid.from_vmod(sys.argv[1])
-
-    # Calibrate hex grid max_cols for any boards (default 46 works for SPQR)
-    for map_name, boards in mg.maps.items():
-        for board in boards.values():
-            if board.grid:
-                board.grid.max_cols = 46
-                board.grid.max_rows = 46
-
-    state = GameState()
-    state.load_from_file(sys.argv[2])
-
-    # Auto-detect which boards are loaded
-    active = detect_active_boards(state)
-    print(f"Active boards: {active}")
-
-    scanner = UnitScanner(mg, active_boards=active)
-    units = scanner.scan(state)
-
-    bf = Battlefield(units)
-    bf.summarize()
+    print("vassal_framework.units is a library module.")
+    print("Use it via game-specific runners that supply a side_classifier:")
+    print("  python3 -m games.<GameName>.<game>_lib.runner <save.vsav>")
+    print()
+    print("Or import in your own script:")
+    print("  from vassal_framework import UnitScanner, Battlefield")
+    sys.exit(0)
 
     print("\nLeaders:")
     for ldr in bf.leaders():
