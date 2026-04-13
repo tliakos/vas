@@ -112,6 +112,8 @@ class GameTracker:
     activations_this_turn: List[Dict] = field(default_factory=list)
     pending_actions: List[Dict] = field(default_factory=list)
     leaders_finished: List[str] = field(default_factory=list)
+    activation_counts: Dict[str, int] = field(default_factory=dict)  # leader -> count this turn
+    trumped_leaders: List[str] = field(default_factory=list)  # leaders who can't use Momentum
     ocs_used: Dict[str, int] = field(default_factory=dict)
     rp_lost: Dict[str, int] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
