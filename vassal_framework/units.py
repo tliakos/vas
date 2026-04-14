@@ -257,9 +257,39 @@ class UnitScanner:
                     unit.is_finished = True
 
         # Filter: identify real combat unit images (LG-, RC-, etc.) vs markers
-        unit_imgs = [i for i in imgs if 'Marker' not in i and 'Highlight' not in i
-                     and 'finished' not in i.lower() and 'eliteused' not in i.lower()
-                     and 'Routed' not in i and 'Trumped' not in i]
+        def _is_unit_img(i):
+            if 'Marker' in i or 'Highlight' in i:
+                return False
+            lo = i.lower()
+            if 'finished' in lo or 'eliteused' in lo:
+                return False
+            if 'Routed' in i or 'Trumped' in i:
+                return False
+            if 'counter template' in lo:  # blank placeholder, not a real unit image
+                return False
+            # Skip small marker-like gifs (Screen, Missile, Rampage, etc.)
+            if i in ('Highlight.gif',) or lo.startswith(('screen', 'missile', 'elrampage')):
+                return False
+            # Single-digit pngs used for numeric overlays
+            if re.match(r'^\d+\.png$', i):
+                return False
+            return True
+
+        unit_imgs = [i for i in imgs if _is_unit_img(i)]
+
+        # Some pieces store the unit image only in pstate, not ptype:
+        #   - BasicPiece image (e.g. "Syrian_EL_Indian1.jpg")
+        #   - Layer/emb2 trait images (e.g. Macedonian phalanx with
+        #     "Counter Template.png" BasicPiece + Layer showing
+        #     "Macedon_PH_Macedon5.jpg,PH-Macedon-B.png")
+        if unit.image and _is_unit_img(unit.image) and unit.image not in unit_imgs:
+            unit_imgs.append(unit.image)
+
+        if not unit_imgs:
+            pstate_imgs = re.findall(r'([\w.-]+\.(?:png|gif|jpg))', pstate)
+            for pi in pstate_imgs:
+                if _is_unit_img(pi) and pi not in unit_imgs:
+                    unit_imgs.append(pi)
 
         # Skip pure marker pieces (no unit image, not a leader)
         if not unit_imgs and not is_leader:
@@ -298,10 +328,18 @@ class UnitScanner:
                     break
             classify_img = coded_img or (unit_imgs[0] if unit_imgs else '')
             unit.side = self.side_classifier(classify_img)
-            # Set the coded image as the primary if found
+            # Set the coded image as the primary if found. Keep the
+            # BasicPiece name when it's more specific (e.g. "PH Macedon 5")
+            # than the derived-from-image name ("PH-Macedon").
             if coded_img:
                 unit.image = coded_img
-                unit.name = coded_img.replace('-B.png', '').replace('-F.png', '').replace('.png', '')
+                derived_name = (coded_img.replace('-B.png', '')
+                                        .replace('-F.png', '')
+                                        .replace('.png', ''))
+                bp_name = (unit.name or '').strip()
+                # BasicPiece names like "Counter Template" are generic; skip those.
+                if not bp_name or bp_name.lower() in ('counter template', ''):
+                    unit.name = derived_name
 
         # Classify unit type via the game-specific callback if provided
         if unit.image and self.unit_type_classifier:
